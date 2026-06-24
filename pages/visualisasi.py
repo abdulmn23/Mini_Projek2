@@ -36,6 +36,18 @@ def detect_columns(df):
     
     return price_col, company_col, numeric_cols, categorical_cols
 
+def clean_price_column(df, price_col):
+    """Clean and convert price column to numeric"""
+    if price_col not in df.columns:
+        return df, None
+    
+    # Remove any non-numeric characters and convert
+    df[price_col] = df[price_col].astype(str).str.replace('.', '', regex=False)
+    df[price_col] = df[price_col].str.replace(',', '', regex=False)
+    df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
+    
+    return df, price_col
+
 def show_visual(df):
     """
     Display comprehensive visualizations of the laptop dataset
@@ -47,22 +59,44 @@ def show_visual(df):
         st.warning("Dataset kosong! Tidak ada data untuk divisualisasikan.")
         return
     
+    # Clean the price column first
+    price_col = None
+    for col in df.columns:
+        if col.lower() == 'price':
+            price_col = col
+            df, price_col = clean_price_column(df, col)
+            break
+    
     # Detect columns
-    price_col, company_col, numeric_cols, categorical_cols = detect_columns(df)
+    detected_price_col, company_col, numeric_cols, categorical_cols = detect_columns(df)
+    
+    # Use detected price column if not found earlier
+    if price_col is None and detected_price_col is not None:
+        price_col = detected_price_col
+        df, price_col = clean_price_column(df, price_col)
     
     # Show detected columns for debugging
     with st.expander("🔍 Informasi Dataset"):
         st.write(f"**Total Data:** {len(df)} baris, {len(df.columns)} kolom")
+        st.write(f"**Kolom yang tersedia:** {df.columns.tolist()}")
         st.write(f"**Detected Price Column:** {price_col}")
         st.write(f"**Detected Company Column:** {company_col}")
         st.write(f"**Numeric Columns:** {numeric_cols}")
-        st.write(f"**Categorical Columns:** {categorical_cols}")
-        st.write("**All Columns:**")
+        st.write("**Sample Data:**")
         st.dataframe(df.head())
     
-    if price_col is None:
-        st.error("❌ Tidak ditemukan kolom 'Price' dalam dataset. Pastikan dataset memiliki kolom harga.")
+    if price_col is None or df[price_col].isna().all():
+        st.error("❌ Tidak ditemukan kolom 'Price' yang valid dalam dataset. Pastikan dataset memiliki kolom harga dengan format angka.")
         return
+    
+    # Remove rows with null price
+    df_clean = df.dropna(subset=[price_col])
+    
+    if df_clean.empty:
+        st.warning("Tidak ada data harga yang valid.")
+        return
+    
+    st.success(f"✅ Ditemukan {len(df_clean)} data dengan harga yang valid")
     
     # Create tabs
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -73,30 +107,30 @@ def show_visual(df):
     ])
     
     with tab1:
-        show_price_distribution(df, price_col)
+        show_price_distribution(df_clean, price_col)
     
     with tab2:
-        show_price_by_company(df, price_col, company_col)
+        show_price_by_company(df_clean, price_col, company_col)
     
     with tab3:
-        show_correlation_matrix(df, price_col, numeric_cols)
+        show_correlation_matrix(df_clean, price_col, numeric_cols)
     
     with tab4:
-        show_feature_analysis(df, price_col, numeric_cols, categorical_cols)
+        show_feature_analysis(df_clean, price_col, numeric_cols, categorical_cols)
 
 def show_price_distribution(df, price_col):
     """Display price distribution histogram"""
     st.subheader("Distribusi Harga Laptop")
     
+    # Check if price column has valid data
+    if df[price_col].isna().all():
+        st.warning(f"Kolom '{price_col}' tidak memiliki data yang valid.")
+        return
+    
     col1, col2 = st.columns(2)
     
     with col1:
         fig, ax = plt.subplots(figsize=(10, 6))
-        
-        # Check if price column has valid data
-        if df[price_col].isna().all():
-            st.warning(f"Kolom '{price_col}' tidak memiliki data yang valid.")
-            return
         
         sns.histplot(
             data=df,
@@ -413,6 +447,6 @@ def show_visual_enhanced(df):
     st.download_button(
         label="📥 Download Data",
         data=df.to_csv(index=False),
-        file_name="laptop_data.csv",
+        file_name="laptop_data_clean.csv",
         mime="text/csv"
     )

@@ -25,138 +25,73 @@ st.title("💻 Laptop Price Prediction App")
 st.write("Deploy TensorFlow ANN + Streamlit")
 
 # ============================================
-# FILE FINDING FUNCTIONS - WORKS IN CLOUD
+# FIND AND LOAD DATA - FIXED FOR SEMICOLON CSV
 # ============================================
-
-def get_project_root():
-    """Get the project root directory"""
-    # In Streamlit Cloud, the app runs from the root of the repo
-    # Check if we're in a cloud environment
-    if os.environ.get('STREAMLIT_SHARING') or os.environ.get('STREAMLIT_CLOUD'):
-        return os.getcwd()
-    
-    # Local environment
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Try to find project root by looking for common markers
-    markers = ['saved_models', 'data', 'pages']
-    search_dir = current_dir
-    
-    for _ in range(5):
-        if all(os.path.exists(os.path.join(search_dir, marker)) for marker in ['saved_models', 'data']):
-            return search_dir
-        if os.path.exists(os.path.join(search_dir, 'saved_models')):
-            return search_dir
-        parent = os.path.dirname(search_dir)
-        if parent == search_dir:
-            break
-        search_dir = parent
-    
-    return current_dir
 
 def find_data_file():
     """Find the laptop data CSV file"""
-    project_root = get_project_root()
-    
     possible_paths = [
-        # Relative paths
         "../data/laptopData.csv",
         "data/laptopData.csv",
         "./data/laptopData.csv",
-        # Absolute paths from project root
-        os.path.join(project_root, "data", "laptopData.csv"),
-        os.path.join(project_root, "laptopData.csv"),
-        # Current directory
-        os.path.join(os.getcwd(), "data", "laptopData.csv"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "laptopData.csv"),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "laptopData.csv"),
+        os.path.join(os.getcwd(), "data", "laptopData.csv"),
     ]
-    
-    # Debug: Print all paths being checked
-    st.sidebar.write("🔍 Searching for data file...")
     
     for path in possible_paths:
-        if path and os.path.exists(path):
-            st.sidebar.success(f"✅ Found data at: {path}")
+        if os.path.exists(path):
             return path
-    
-    # If not found, list files for debugging
-    st.sidebar.warning("⚠️ Data file not found. Checking directory contents...")
-    try:
-        files = os.listdir('.')
-        st.sidebar.write(f"Files in current directory: {files}")
-        
-        if os.path.exists('data'):
-            st.sidebar.write(f"Files in data/: {os.listdir('data')}")
-        if os.path.exists('../data'):
-            st.sidebar.write(f"Files in ../data/: {os.listdir('../data')}")
-    except Exception as e:
-        st.sidebar.write(f"Error listing files: {e}")
-    
     return None
 
-def find_model_files():
-    """Find model and scaler files"""
-    project_root = get_project_root()
+def load_laptop_data():
+    """Load laptop data with proper parsing"""
+    data_path = find_data_file()
     
-    model_path = None
-    scaler_path = None
+    if data_path is None:
+        st.warning("⚠️ Data file not found.")
+        return pd.DataFrame()
     
-    possible_model_paths = [
-        os.path.join(project_root, "saved_models", "ann_model.keras"),
-        os.path.join(os.getcwd(), "saved_models", "ann_model.keras"),
-        "../saved_models/ann_model.keras",
-        "saved_models/ann_model.keras",
-        "./saved_models/ann_model.keras",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_models", "ann_model.keras"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "saved_models", "ann_model.keras"),
-    ]
-    
-    possible_scaler_paths = [
-        os.path.join(project_root, "saved_models", "scaler.joblib"),
-        os.path.join(os.getcwd(), "saved_models", "scaler.joblib"),
-        "../saved_models/scaler.joblib",
-        "saved_models/scaler.joblib",
-        "./saved_models/scaler.joblib",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_models", "scaler.joblib"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "saved_models", "scaler.joblib"),
-    ]
-    
-    for path in possible_model_paths:
-        if path and os.path.exists(path):
-            model_path = path
-            break
-    
-    for path in possible_scaler_paths:
-        if path and os.path.exists(path):
-            scaler_path = path
-            break
-    
-    return model_path, scaler_path
-
-# ============================================
-# LOAD DATA
-# ============================================
-
-# Find and load data
-data_path = find_data_file()
-if data_path:
     try:
-        df = pd.read_csv(data_path)
+        # Try reading with semicolon separator
+        df = pd.read_csv(data_path, sep=';', encoding='utf-8')
+        
+        # Remove rows that are all NaN or empty
+        df = df.dropna(how='all')
+        
+        # Remove rows where the first column is empty (those rows with just semicolons)
+        first_col = df.columns[0]
+        df = df[~df[first_col].astype(str).str.strip().isin(['', 'nan', 'None'])]
+        
+        # Clean up column names
+        df.columns = df.columns.str.strip()
+        
+        # Try to find and clean Price column
+        for col in df.columns:
+            if col.lower().strip() == 'price':
+                # Clean price: remove dots and convert to numeric
+                df[col] = df[col].astype(str).str.replace('.', '', regex=False)
+                df[col] = df[col].str.replace(',', '', regex=False)
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                break
+        
+        # Display info
         st.sidebar.success(f"✅ Data loaded: {len(df)} rows")
+        
+        # Show columns in debug
+        with st.sidebar.expander("📊 Data Info"):
+            st.write(f"Columns: {df.columns.tolist()}")
+            st.write(f"Shape: {df.shape}")
+            
+        return df
+        
     except Exception as e:
         st.error(f"Error loading data: {e}")
-        df = pd.DataFrame()
-else:
-    st.warning("⚠️ Data file not found. Please ensure 'laptopData.csv' exists in the 'data' directory.")
-    st.info(f"Current directory: {os.getcwd()}")
-    st.info(f"Project root: {get_project_root()}")
-    df = pd.DataFrame()
+        return pd.DataFrame()
 
-# ============================================
-# SIDEBAR MENU
-# ============================================
+# Load data
+df = load_laptop_data()
 
+# Sidebar menu
 menu = st.sidebar.selectbox(
     "Pilih Menu",
     ["Visualisasi", "Prediksi"]
@@ -175,16 +110,28 @@ if menu == "Visualisasi":
             show_visual(df)
         except Exception as e:
             st.error(f"Error showing visualizations: {e}")
+            st.exception(e)  # This will show the full traceback
     else:
         st.warning("Data tidak tersedia untuk visualisasi")
+        st.info("Pastikan file 'laptopData.csv' ada di folder 'data' dengan format yang benar.")
 
 else:
     st.header("🔮 Prediksi Harga Laptop")
     
     # Check if model files exist
-    model_path, scaler_path = find_model_files()
+    model_paths = [
+        "../saved_models/ann_model.keras",
+        "saved_models/ann_model.keras",
+        "./saved_models/ann_model.keras",
+    ]
     
-    if not model_path or not scaler_path:
+    model_found = False
+    for path in model_paths:
+        if os.path.exists(path):
+            model_found = True
+            break
+    
+    if not model_found:
         st.error("❌ Model files not found. Please ensure 'ann_model.keras' and 'scaler.joblib' are in the 'saved_models' directory.")
         
         with st.expander("Debug Info"):
@@ -312,8 +259,6 @@ else:
             # Debug info
             with st.expander("Debug Info"):
                 st.write("Current directory:", os.getcwd())
-                st.write("Files in current directory:", os.listdir('.') if os.path.exists('.') else 'N/A')
+                st.write("Files in current directory:", os.listdir('.'))
                 if os.path.exists('../saved_models'):
                     st.write("Files in saved_models:", os.listdir('../saved_models'))
-                if os.path.exists('saved_models'):
-                    st.write("Files in saved_models:", os.listdir('saved_models'))
